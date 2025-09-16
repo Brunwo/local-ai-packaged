@@ -1,102 +1,93 @@
+# Global options - works for both environments
 {
-    # Global options - works for both environments
-    email {$LETSENCRYPT_EMAIL}
+	email {$LETSENCRYPT_EMAIL}
 }
 
-# N8N
-{$N8N_HOSTNAME} {
-    # For domains, Caddy will automatically use Let's Encrypt
-    # For localhost/port addresses, HTTPS won't be enabled
-    reverse_proxy n8n:5678
+# Open WebUI - Frontend UI
+{$WEBUI_HOSTNAME}, www.{$WEBUI_HOSTNAME} {
+	# Automatic HTTPS with Let's Encrypt for both domains
+	reverse_proxy open-webui:8080
 }
 
-# Open WebUI
-{$WEBUI_HOSTNAME} {
-    reverse_proxy open-webui:8080
+# LiteLLM API - Restricted to your IP only
+litellm.{$WEBUI_HOSTNAME} {
+	# Use the same certificate as the main domain
+	tls {$LETSENCRYPT_EMAIL}
+
+	# Trust Cloudflare proxy headers to get real client IP
+	request_header CF-Connecting-IP {header.CF-Connecting-IP}
+	request_header X-Forwarded-For {header.X-Forwarded-For}
+	request_header X-Real-IP {header.X-Real-IP}
+
+	# IP restriction - only allow configured IPs (using real IP from Cloudflare)
+	@allowed {
+		header CF-Connecting-IP {$ALLOWED_IP}
+	}
+	@blocked not {
+		header CF-Connecting-IP {$ALLOWED_IP}
+	}
+
+	respond @blocked 403 {
+		body "Access denied. This service is restricted to authorized IPs only."
+	}
+
+	# Reverse proxy to LiteLLM service
+	reverse_proxy @allowed litellm:4000
 }
 
-# Flowise
-{$FLOWISE_HOSTNAME} {
-    reverse_proxy flowise:3001
-}
-
-# Langfuse
-{$LANGFUSE_HOSTNAME} {
-    reverse_proxy langfuse-web:3000
-}
-
-# # Ollama API
-# {$OLLAMA_HOSTNAME} {
-#     reverse_proxy ollama:11434
+# # Supabase API Gateway
+# api.{$WEBUI_HOSTNAME} {
+# 	reverse_proxy supabase-kong:8000
 # }
 
-# Supabase
-{$SUPABASE_HOSTNAME} {
-    reverse_proxy kong:8000
-}
+# # Supabase Studio (Dashboard)
+# studio.{$WEBUI_HOSTNAME} {
+# 	reverse_proxy supabase-studio:3000
+# }
 
-# Neo4j
-{$NEO4J_HOSTNAME} {
-    reverse_proxy neo4j:7474
-}
+# All other services are INTERNAL ONLY - commented out for security
+# N8N (internal only) - commented out due to missing N8N_HOSTNAME env var
+# {$N8N_HOSTNAME} {
+    # reverse_proxy n8n:5678
+# }
 
-import /etc/caddy/addons/*.conf
+# Flowise (internal only)
+# {$FLOWISE_HOSTNAME} {
+#     reverse_proxy flowise:3001
+# }
 
-# # SearXNG
-# {$SEARXNG_HOSTNAME} {
-#     encode zstd gzip
-    
-#     @api {
-#         path /config
-#         path /healthz
-#         path /stats/errors
-#         path /stats/checker
-#     }
-#     @search {
-#         path /search
-#     }
-#     @imageproxy {
-#         path /image_proxy
-#     }
-#     @static {
-#         path /static/*
-#     }
-    
-#     header {
-#         # CSP (https://content-security-policy.com)
-#         Content-Security-Policy "upgrade-insecure-requests; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self' https://github.com/searxng/searxng/issues/new; font-src 'self'; frame-ancestors 'self'; base-uri 'self'; connect-src 'self' https://overpass-api.de; img-src * data:; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.dailymotion.com https://www.deezer.com https://www.mixcloud.com https://w.soundcloud.com https://embed.spotify.com;"
-#         # Disable some browser features
-#         Permissions-Policy "accelerometer=(),camera=(),geolocation=(),gyroscope=(),magnetometer=(),microphone=(),payment=(),usb=()"
-#         # Set referrer policy
-#         Referrer-Policy "no-referrer"
-#         # Force clients to use HTTPS
-#         Strict-Transport-Security "max-age=31536000"
-#         # Prevent MIME type sniffing from the declared Content-Type
-#         X-Content-Type-Options "nosniff"
-#         # X-Robots-Tag (comment to allow site indexing)
-#         X-Robots-Tag "noindex, noarchive, nofollow"
-#         # Remove "Server" header
-#         -Server
-#     }
-    
-#     header @api {
-#         Access-Control-Allow-Methods "GET, OPTIONS"
-#         Access-Control-Allow-Origin "*"
-#     }
-    
-#     route {
-#         # Cache policy
-#         header Cache-Control "max-age=0, no-store"
-#         header @search Cache-Control "max-age=5, private"
-#         header @imageproxy Cache-Control "max-age=604800, public"
-#         header @static Cache-Control "max-age=31536000, public, immutable"
-#     }
-    
-#     # SearXNG (uWSGI)
-#     reverse_proxy searxng:8080 {
-#         header_up X-Forwarded-Port {http.request.port}
-#         header_up X-Real-IP {http.request.remote.host}
-#         # https://github.com/searx/searx-docker/issues/24
-#         header_up Connection "close"
-#     }
+# Langfuse (internal only)
+# {$LANGFUSE_HOSTNAME} {
+#     reverse_proxy langfuse-web:3000
+# }
+
+# Ollama API (internal only)
+# {$OLLAMA_HOSTNAME} {
+#   reverse_proxy https://ollama-gemma-708299688756.europe-west1.run.app {
+#     header_up Authorization "Bearer {$OLLAMA_TOKEN}"
+#   }
+# }
+
+
+#this is not possible  : apparently, cannot inject headers for outbound requests
+# Google Cloud Ollama API Gateway - SECURED
+# gcloud-ollama.{$WEBUI_HOSTNAME} {
+# 	@allowed remote_ip 127.0.0.1/32 172.17.0.0/16
+# 	@blocked not remote_ip 127.0.0.1/32 172.17.0.0/16
+
+# 	respond @blocked 403
+
+# 	reverse_proxy @allowed https://ollama-gateway-91dzchmc.ew.gateway.dev {
+# 		header_up Authorization "Bearer {$OLLAMA__TOKEN}"
+# 	}
+# }
+
+# Supabase (internal only)
+# {$SUPABASE_HOSTNAME} {
+#     reverse_proxy kong:8000
+# }
+
+# Neo4j (internal only)
+# {$NEO4J_HOSTNAME} {
+#     reverse_proxy neo4j:7474
 # }
