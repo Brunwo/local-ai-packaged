@@ -1,0 +1,54 @@
+name: 🚀 Deploy to Production
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Setup SSH
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+
+    - name: 🚀 Deploy to server
+      run: |
+        echo "🚀 Starting deployment to production server..."
+
+        # Add server to known hosts
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+        # Create deployment directory if it doesn't exist
+        ssh deploy@${{ secrets.SERVER_HOST }} "mkdir -p ~/app"
+
+        # Copy files to server (excluding sensitive files)
+        rsync -avz --exclude='.env' --exclude='.git' --exclude='node_modules' \
+          --exclude='.github' --delete \
+          ./ deploy@${{ secrets.SERVER_HOST }}:~/app/
+
+        # Copy environment file securely
+        scp .env deploy@${{ secrets.SERVER_HOST }}:~/app/.env
+
+        # Run deployment script on server
+        ssh deploy@${{ secrets.SERVER_HOST }} "cd ~/app && chmod +x deploy.sh && ./deploy.sh"
+
+    - name: ✅ Verify deployment
+      run: |
+        echo "🔍 Verifying deployment..."
+        ssh deploy@${{ secrets.SERVER_HOST }} "cd ~/app && docker-compose ps"
+
+    - name: 📢 Deployment notification
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+        fi

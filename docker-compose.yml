@@ -4,7 +4,7 @@ volumes:
   n8n_storage:
   ollama_storage:
   qdrant_storage:
-  open-webui:
+  # open-webui:
   postgres_data:
   caddy-data:
   caddy-config:
@@ -12,9 +12,10 @@ volumes:
   # Supabase volumes
   db-config:
 
-networks:
-  ai_network:
-    driver: bridge
+# issues for localhost access, will need to be reactivated for supabase
+# networks:
+#   ai_network:
+#     driver: bridge
 
 services:
   # PostgreSQL Database - INTERNAL ONLY
@@ -25,6 +26,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: postgres
+      POSTGRES_MULTIPLE_DATABASES: litellmdb
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # No external ports - internal access only
@@ -57,6 +59,31 @@ services:
       db:
         condition: service_healthy
 
+
+  searxng:
+    container_name: searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=https://${SEARXNG_HOSTNAME:-localhost}/
+      - UWSGI_WORKERS=${SEARXNG_UWSGI_WORKERS:-4}
+      - UWSGI_THREADS=${SEARXNG_UWSGI_THREADS:-4}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
   # Ollama for Local LLMs - LOCALHOST ACCESS ENABLED
   ollama:
     image: ollama/ollama:latest
@@ -72,18 +99,18 @@ services:
       - ollama_storage:/root/.ollama
 
   # Open WebUI for Chat Interface - ACCESSED VIA CADDY ONLY
-  open-webui:
-    image: custom-open-webui:latest
-    restart: unless-stopped
-    # No external ports - accessed through Caddy reverse proxy only
-    volumes:
-      - open-webui:/app/backend/data
-    depends_on:
-      - ollama
-    environment:
-      # - OLLAMA_BASE_URL=https://ollama-gateway-91dzchmc.ew.gateway.dev
-      # - OLLAMA_API_KEY=${OLLAMA_API_KEY}
-      - ENABLE_FORWARD_USER_INFO_HEADERS=True
+  # open-webui:
+  #   image: custom-open-webui:latest
+  #   restart: unless-stopped
+  #   # No external ports - accessed through Caddy reverse proxy only
+  #   volumes:
+  #     - open-webui:/app/backend/data
+  #   depends_on:
+  #     - ollama
+  #   environment:
+  #     # - OLLAMA_BASE_URL=https://ollama-gateway-91dzchmc.ew.gateway.dev
+  #     # - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+  #     - ENABLE_FORWARD_USER_INFO_HEADERS=True
 
 
   # Qdrant Vector Database - INTERNAL ONLY
@@ -124,6 +151,8 @@ services:
     environment:
       - WEBUI_HOSTNAME=st3p.org
       - LETSENCRYPT_EMAIL=quarantedouze@gmail.com
+      - ALLOWED_IP=${ALLOWED_IP}
+      - SEARXNG_HOSTNAME=${SEARXNG_HOSTNAME:-":8006"}
       # - OLLAMA_HOSTNAME=${OLLAMA_HOSTNAME}
       # - OLLAMA_TOKEN=${OLLAMA_TOKEN}
       # - GCLOUD_OLLAMA_API_GATEWAY_TOKEN=${GCLOUD_OLLAMA_API_GATEWAY_TOKEN}
@@ -143,6 +172,7 @@ services:
     ports:
       - "4000:4000"                        # LiteLLM API port
     environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       # Master key for administrative operations
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
       # PostgreSQL URL for persistent usage tracking and budgets
@@ -155,7 +185,22 @@ services:
       # Example rate limits
       LITELLM_DEFAULT_RPM_LIMIT: "60"
       LITELLM_DEFAULT_TPM_LIMIT: "20000"
+
+      #secu
+      # LITELLM_SALT_KEY
+
       # Port configuration
       PORT: "4000"
     volumes:
+      - ./litellm/config.yaml:/app/litellm_server/config.yaml:ro
       - litellm_data:/var/lib/litellm/db
+
+  litellm-migrate:
+    image: ghcr.io/berriai/litellm-database:main-stable
+    environment:
+      DATABASE_URL: postgresql://litellmdb:litellmdb@db:5432/litellmdb
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["prisma", "migrate", "deploy"]
+    restart: "no"
