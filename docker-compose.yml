@@ -64,8 +64,9 @@ services:
     container_name: searxng
     image: docker.io/searxng/searxng:latest
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # Remove public port exposure - only accessible via Tailscale
+    # ports:
+    #   - "8080:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
@@ -135,6 +136,37 @@ services:
     profiles:
       - init
 
+  litellm:
+    image: ghcr.io/berriai/litellm-database:main-stable
+    container_name: litellm
+    ports:
+      - "4000:4000"                        # LiteLLM API port
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      # Master key for administrative operations
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
+      # PostgreSQL URL for persistent usage tracking and budgets
+      DATABASE_URL: "postgresql://litellmdb:${LITELLMDB_PASSWORD}@db:5432/litellmdb"
+      # Enable user header parsing to enforce per-user quotas
+      LITELLM_USER_HEADER_NAME: "X-OpenWebUI-User-Id"
+      # Global proxy budget defaults (e.g., $25/month per user)
+      LITELLM_MAX_INTERNAL_USER_BUDGET: "25.00"
+      LITELLM_INTERNAL_USER_BUDGET_DURATION: "1mo"
+      # Example rate limits
+      LITELLM_DEFAULT_RPM_LIMIT: "60"
+      LITELLM_DEFAULT_TPM_LIMIT: "20000"
+
+      #secu
+      # LITELLM_SALT_KEY
+
+      # Port configuration
+      PORT: "4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+      - litellm_data:/var/lib/litellm/db
+    depends_on:
+      db:
+        condition: service_healthy
   # Caddy Reverse Proxy - Only exposes frontend UI
   caddy:
     container_name: caddy
