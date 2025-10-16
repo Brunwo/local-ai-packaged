@@ -155,6 +155,9 @@ services:
       # Example rate limits
       LITELLM_DEFAULT_RPM_LIMIT: "60"
       LITELLM_DEFAULT_TPM_LIMIT: "20000"
+      # UI Authentication
+      UI_USERNAME: "${UI_USERNAME}"
+      UI_PASSWORD: "${UI_PASSWORD}"
 
       #secu
       # LITELLM_SALT_KEY
@@ -162,11 +165,21 @@ services:
       # Port configuration
       PORT: "4000"
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
+      - ../litellm/config.yaml:/app/config.yaml:ro
       - litellm_data:/var/lib/litellm/db
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "4", "--detailed_debug"]
+
+
+
   # Caddy Reverse Proxy - Only exposes frontend UI
   caddy:
     container_name: caddy
@@ -197,42 +210,3 @@ services:
       options:
         max-size: "1m"
         max-file: "1"
-
-  litellm:
-    image: ghcr.io/berriai/litellm:latest
-    container_name: litellm
-    ports:
-      - "4000:4000"                        # LiteLLM API port
-    environment:
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
-      # Master key for administrative operations
-      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
-      # PostgreSQL URL for persistent usage tracking and budgets
-      LITELLM_DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@${DB_HOST}:${DB_PORT}/postgres"
-      # Enable user header parsing to enforce per-user quotas
-      LITELLM_USER_HEADER_NAME: "X-OpenWebUI-User-Id"
-      # Global proxy budget defaults (e.g., $25/month per user)
-      LITELLM_MAX_INTERNAL_USER_BUDGET: "25.00"
-      LITELLM_INTERNAL_USER_BUDGET_DURATION: "1mo"
-      # Example rate limits
-      LITELLM_DEFAULT_RPM_LIMIT: "60"
-      LITELLM_DEFAULT_TPM_LIMIT: "20000"
-
-      #secu
-      # LITELLM_SALT_KEY
-
-      # Port configuration
-      PORT: "4000"
-    volumes:
-      - ./litellm/config.yaml:/app/litellm_server/config.yaml:ro
-      - litellm_data:/var/lib/litellm/db
-
-  litellm-migrate:
-    image: ghcr.io/berriai/litellm-database:main-stable
-    environment:
-      DATABASE_URL: postgresql://litellmdb:litellmdb@db:5432/litellmdb
-    depends_on:
-      db:
-        condition: service_healthy
-    command: ["prisma", "migrate", "deploy"]
-    restart: "no"
